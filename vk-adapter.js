@@ -1,27 +1,12 @@
 (() => {
   'use strict';
 
-  const cleanText = str => str
-    .replace(/на площадке Яндекс Игр/g, 'во ВКонтакте')
-    .replace(/на Яндекс Играх/g, 'во ВКонтакте')
-    .replace(/в Яндекс Играх/g, 'во ВКонтакте')
-    .replace(/Яндекс Игр/g, 'ВКонтакте')
-    .replace(/за Яны/gi, 'за голоса')
-    .replace(/ЗА ЯНЫ/g, 'СКОРО');
-
-  const replaceYandexStrings = () => {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (node.nodeValue && /Яндекс|Яны|ЯНЫ/i.test(node.nodeValue)) {
-        node.nodeValue = cleanText(node.nodeValue);
-      }
-    }
-  };
-
-  window.addEventListener('DOMContentLoaded', () => {
-    replaceYandexStrings();
-    document.addEventListener('click', () => setTimeout(replaceYandexStrings, 30));
+  window.addEventListener('load', () => {
+    document.querySelectorAll('button').forEach(btn => {
+      if (btn.textContent.trim() === 'ЗА ЯНЫ') btn.textContent = 'СКОРО';
+    });
+    const note = document.getElementById('shopNote');
+    if (note) note.textContent = 'Внутриигровые покупки за голоса ВК скоро откроются ✦';
   });
 
   if (!window.vkBridge) return;
