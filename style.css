@@ -197,9 +197,9 @@ html,body{touch-action:manipulation}
 }
 .shop-card[data-product] { display: none !important; }
 .shop-grid { grid-template-columns: 1fr !important; max-width: 280px !important; }
-@media (max-height: 600px) {
+@media (max-height: 750px) {
   .menu-ornament { display: none !important; }
-  #screen-menu { padding-top: 2px !important; gap: 4px !important; }
-  .hero-title h1 { font-size: clamp(46px, 8.5dvh, 68px) !important; margin: 4px 0 2px !important; }
+  #screen-menu { padding-top: 2px !important; gap: 6px !important; }
 }
+
 
