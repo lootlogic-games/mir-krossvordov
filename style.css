@@ -195,3 +195,5 @@ html,body{touch-action:manipulation}
 .mascot-book {
   font-size: clamp(44px, 7dvh, 72px) !important;
 }
+.shop-card[data-product] { display: none !important; }
+.shop-grid { grid-template-columns: 1fr !important; max-width: 280px !important; }
