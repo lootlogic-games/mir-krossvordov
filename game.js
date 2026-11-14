@@ -1,7 +1,7 @@
 /*
  * Слова из букв: Мир Кроссвордов — standalone HTML5 engine
  * VK Mini Apps edition, compatible with static GitHub Pages hosting.
- * Purchases, remote cloud saves and network leaderboards are disabled until connected to a backend.
+ * VK Storage sync works without a custom server; in-app purchases and public leaderboards require a separate integration.
  * No third-party assets / third-party game engine required.
  */
 (() => {
@@ -40,6 +40,7 @@
     result.levelUnlocked = Math.max(1, Math.min(151, Number(result.levelUnlocked) || 1));
     result.lastLevel = Math.max(1, Math.min(150, Number(result.lastLevel) || 1));
     result.score = Math.max(0, Number(result.score) || 0);
+    result.updatedAt = Math.max(0, Math.floor(Number(result.updatedAt) || 0));
     result.chestProgress = Math.max(0, Math.min(4, Number(result.chestProgress) || 0));
     for (const k of ['found','revealed','bonusFound']) {
       if (!result[k] || Array.isArray(result[k]) || typeof result[k] !== 'object') result[k] = {};
@@ -57,6 +58,8 @@
   let targetMode = false, lockedWin = false, busySpin = false;
   let pendingWinReward = 0, pendingWinFirst = false;
   let vk = null, vkInitializing = false;
+  let cloudReady = false, cloudSlot = -1, cloudWriteBusy = false, cloudTimer = 0;
+  let cloudDirty = false, cloudSavingAllowed = false;
   let adOpen = false;
   let vkViewPaused = false;
   let toastTimer = 0, winnerTimer = 0, sceneW = 0, sceneH = 0;
@@ -81,12 +84,223 @@
       button.title=(id==='targetBtn'?'Прицел:':'Молния:')+(free?' открыть за видео':' '+cost+' монет');
     }
   }
-  // Offline-first progress is stored only in this browser. No remote sync is claimed.
+  /* Local-first progress. Remote VK Storage uploads are debounced and atomic.
+   * VK Storage allows at most 4096 bytes per value, so level flags are packed
+   * into three compact values. Two alternating slots prevent interrupted writes
+   * from destroying the previous committed save. */
+  const CLOUD_PREFIX = 'mk_crossword_v1_';
+  const CLOUD_PARTS = 3;
+  const CLOUD_BYTE_LIMIT = 4096;
+  const CLOUD_DELAY_MS = 1800;
+  const cloudKey = (slot, suffix) => CLOUD_PREFIX + slot + '_' + suffix;
+  const byteLength = value => new TextEncoder().encode(value).length;
+
+  function bitPack(selected, options){
+    const set = new Set(selected || []);
+    const bytes = new Uint8Array(Math.ceil(options.length / 8));
+    for(let i=0;i<options.length;i++) if(set.has(options[i])) bytes[i>>3] |= 1 << (i&7);
+    let end=bytes.length;
+    while(end>0 && bytes[end-1]===0)end--;
+    if(!end)return '';
+    let binary='';for(let i=0;i<end;i++)binary+=String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+  function bitUnpack(encoded, options){
+    if(typeof encoded!=='string')throw Error('Invalid cloud bitset');
+    const binary=encoded?atob(encoded):'';
+    if(binary.length>Math.ceil(options.length/8))throw Error('Cloud bitset too long');
+    const restored=[];
+    for(let i=0;i<options.length;i++){
+      const byte=i>>3;
+      if(byte<binary.length && (binary.charCodeAt(byte)&(1<<(i&7))))restored.push(options[i]);
+    }
+    return restored;
+  }
+  const levelIds=Array.from({length:150},(_,i)=>i+1);
+  const boardCellKeys=level=>{
+    const unique=new Set();
+    for(const word of level.words) for(const key of slots(word))unique.add(key);
+    return [...unique].sort((a,b)=>{
+      const [ax,ay]=a.split(',').map(Number),[bx,by]=b.split(',').map(Number);
+      return ay-by || ax-bx;
+    });
+  };
+  const cloudHash=value=>{
+    // FNV-1a over UTF-16 code units; all packed payload is ASCII.
+    let h=2166136261;
+    for(let i=0;i<value.length;i++) {h^=value.charCodeAt(i);h=Math.imul(h,16777619);}
+    return (h>>>0).toString(36);
+  };
+
+  function packCloudSave(save){
+    const base=normalizeSave(save);
+    const groups=[];
+    for(let part=0;part<CLOUD_PARTS;part++){
+      const records=[];
+      for(let i=part*50;i<(part+1)*50;i++){
+        const level=LEVELS[i],id=String(level.id);
+        const found=bitPack(base.found[id],level.words.map(w=>w.word));
+        const revealed=bitPack(base.revealed[id],boardCellKeys(level));
+        const bonus=bitPack(base.bonusFound[id],level.bonusWords);
+        if(found||revealed||bonus)records.push([level.id,found,revealed,bonus]);
+      }
+      const text=JSON.stringify(records);
+      if(byteLength(text)>CLOUD_BYTE_LIMIT)throw Error('VK Storage part exceeds 4096 bytes');
+      groups.push(text);
+    }
+    const core=[base.coins,base.levelUnlocked,base.lastLevel,
+      bitPack(base.completed,levelIds),base.chestProgress,base.chestOpened,
+      base.dailyDate,base.spinAngle,base.noAds?1:0,base.muted?1:0,
+      base.musicMuted?1:0,base.score,bitPack(base.doubledRewards,levelIds)];
+    const meta={v:1,t:base.updatedAt,c:core,n:CLOUD_PARTS,
+      h:cloudHash(JSON.stringify(core)+'|'+groups.join('|'))};
+    const manifest=JSON.stringify(meta);
+    if(byteLength(manifest)>CLOUD_BYTE_LIMIT)throw Error('VK Storage manifest too large');
+    return {meta,manifest,groups};
+  }
+  function unpackCloudSave(meta,groups){
+    if(!meta||meta.v!==1||!Number.isFinite(meta.t)||!Array.isArray(meta.c)||
+      meta.c.length!==13||meta.n!==CLOUD_PARTS||groups.length!==CLOUD_PARTS)
+      throw Error('Unknown VK Storage save format');
+    if(groups.some(g=>typeof g!=='string'||byteLength(g)>CLOUD_BYTE_LIMIT))
+      throw Error('Invalid VK Storage save part');
+    if(meta.h!==cloudHash(JSON.stringify(meta.c)+'|'+groups.join('|')))
+      throw Error('VK Storage save checksum mismatch');
+    const c=meta.c;
+    const loaded=normalizeSave({updatedAt:meta.t,coins:c[0],levelUnlocked:c[1],
+      lastLevel:c[2],completed:bitUnpack(c[3],levelIds),
+      chestProgress:c[4],chestOpened:c[5],dailyDate:c[6],spinAngle:c[7],
+      noAds:!!c[8],muted:!!c[9],musicMuted:!!c[10],score:c[11],
+      doubledRewards:bitUnpack(c[12],levelIds)});
+    groups.forEach((text,groupIndex)=>{
+      const records=JSON.parse(text);
+      if(!Array.isArray(records)||records.length>50)throw Error('VK Storage group corrupt');
+      for(const record of records){
+        if(!Array.isArray(record)||record.length!==4)throw Error('VK Storage row corrupt');
+        const [id,found,revealed,bonus]=record;
+        if(!Number.isInteger(id)||id<=groupIndex*50||id>(groupIndex+1)*50)
+          throw Error('VK Storage invalid level');
+        const level=LEVELS[id-1],key=String(id);
+        const f=bitUnpack(found,level.words.map(w=>w.word));
+        const r=bitUnpack(revealed,boardCellKeys(level));
+        const b=bitUnpack(bonus,level.bonusWords);
+        if(f.length)loaded.found[key]=f;
+        if(r.length)loaded.revealed[key]=r;
+        if(b.length)loaded.bonusFound[key]=b;
+      }
+    });
+    return loaded;
+  }
+
+  function cloudValues(response){
+    if(!response||!Array.isArray(response.keys))throw Error('VK Storage read failed');
+    const result={};
+    for(const entry of response.keys)if(entry&&typeof entry.key==='string')
+      result[entry.key]=entry.value??'';
+    return result;
+  }
+  async function fetchCloudSave(){
+    const metaKeys=[cloudKey(0,'meta'),cloudKey(1,'meta')];
+    const raw=cloudValues(await vk.send('VKWebAppStorageGet',{keys:metaKeys}));
+    const candidates=[];
+    let corrupt=false;
+    for(let slot=0;slot<2;slot++){
+      const value=raw[cloudKey(slot,'meta')];
+      if(!value)continue;
+      try{
+        const manifest=JSON.parse(value);
+        if(manifest.v!==1||!Number.isFinite(manifest.t))throw Error('Invalid manifest');
+        candidates.push({slot,manifest});
+      }catch{corrupt=true;}
+    }
+    candidates.sort((a,b)=>b.manifest.t-a.manifest.t);
+    for(const candidate of candidates){
+      try{
+        const keys=Array.from({length:CLOUD_PARTS},(_,i)=>cloudKey(candidate.slot,i));
+        const map=cloudValues(await vk.send('VKWebAppStorageGet',{keys}));
+        const groups=keys.map(key=>map[key]);
+        if(groups.some(item=>typeof item!=='string'||!item.length))throw Error('Incomplete save');
+        const save=unpackCloudSave(candidate.manifest,groups);
+        return {save,slot:candidate.slot};
+      }catch{corrupt=true;}
+    }
+    if(corrupt)throw Error('VK Storage data unavailable or incomplete');
+    return {save:null,slot:-1};
+  }
+  function applyCloudSave(loaded){
+    if(!loaded || loaded.updatedAt<=state.updatedAt)return false;
+    state=normalizeSave(loaded);
+    try{localStorage.setItem(STORE,JSON.stringify(state));}catch{}
+    current=LEVELS[state.lastLevel-1]||LEVELS[0];
+    buildLetters();renderAudioButtons();updateWallet();
+    renderMap();renderDaily();
+    if(screen==='game'){
+      $('levelTitle').textContent=current.title;
+      $('chapterLabel').textContent=CHAPTERS[current.chapter-1].tag;
+      $('levelBadge').innerHTML=`${current.id}<span>/150</span>`;
+      renderBoard();requestAnimationFrame(()=>{layoutWheel();resizeBoard();});
+    }
+    if(screen==='chest')renderChest();
+    if(screen==='leaderboard')refreshLeaderboard();
+    setChapter(screen==='game'?current.chapter:Math.ceil(state.lastLevel/10));
+    return true;
+  }
+  function scheduleCloudSave(){
+    if(!vk||!cloudReady||!cloudSavingAllowed)return;
+    cloudDirty=true;
+    clearTimeout(cloudTimer);
+    cloudTimer=setTimeout(flushCloudSave,CLOUD_DELAY_MS);
+  }
+  async function flushCloudSave(){
+    if(!vk||!cloudReady||!cloudSavingAllowed||cloudWriteBusy||!cloudDirty)return;
+    cloudDirty=false;
+    cloudWriteBusy=true;
+    let snapshot;
+    try{
+      snapshot=packCloudSave(state);
+      const nextSlot=cloudSlot===0?1:0;
+      // Write all data first. The manifest acts as the atomic commit marker.
+      for(let i=0;i<CLOUD_PARTS;i++){
+        const response=await vk.send('VKWebAppStorageSet',
+          {key:cloudKey(nextSlot,i),value:snapshot.groups[i]});
+        if(response?.result===false)throw Error('VK Storage part write failed');
+      }
+      const response=await vk.send('VKWebAppStorageSet',
+        {key:cloudKey(nextSlot,'meta'),value:snapshot.manifest});
+      if(response?.result===false)throw Error('VK Storage commit failed');
+      cloudSlot=nextSlot;
+    }catch{
+      // Keep local progress. Retry after the next user save or VK restore.
+      cloudDirty=true;
+      cloudSavingAllowed=false;
+    }finally{
+      cloudWriteBusy=false;
+      if(cloudSavingAllowed&&(cloudDirty||state.updatedAt>snapshot?.meta.t))scheduleCloudSave();
+      if(screen==='leaderboard')refreshLeaderboard();
+    }
+  }
+  async function initializeCloudSave(){
+    try{
+      const cloud=await fetchCloudSave();
+      cloudSlot=cloud.slot;
+      if(cloud.save){
+        if(!applyCloudSave(cloud.save) && state.updatedAt>cloud.save.updatedAt)
+          cloudDirty=true;
+      }else if(state.updatedAt>0) cloudDirty=true;
+      cloudReady=true;cloudSavingAllowed=true;
+      if(cloudDirty)scheduleCloudSave();
+    }catch{
+      // Do not overwrite an inaccessible remote save. A later restore retries.
+      cloudReady=false;cloudSavingAllowed=false;
+    }
+    if(screen==='leaderboard')refreshLeaderboard();
+  }
   function persist(){
-    state.updatedAt = Date.now();
-    try { localStorage.setItem(STORE, JSON.stringify(state)); }
-    catch { /* Private browsing or blocked storage: gameplay stays playable. */ }
+    state.updatedAt=Math.max(Date.now(),state.updatedAt+1);
+    try{localStorage.setItem(STORE,JSON.stringify(state));}
+    catch{/* Private mode or quota: gameplay still runs. */}
     updateWallet();
+    scheduleCloudSave();
   }
   function toast(message){
     const el=screen==='game' ? $('gameFeedback') : $('toast');
@@ -551,25 +765,40 @@
     }
   }
 
+  function launchedInsideVK(bridge){
+    try{
+      const params=new URLSearchParams(location.search);
+      if(params.has('vk_app_id') || params.has('vk_platform'))return true;
+      if(/^https:\/\/(?:[a-z0-9-]+\.)?(?:vk\.com|vk\.ru|vkontakte\.ru)(?:\/|$)/i.test(document.referrer))return true;
+      return Boolean(bridge.isWebView?.() || bridge.isEmbedded?.());
+    }catch{return false;}
+  }
   const VKBridgeAdapter = {
     async init(){
-      if(vk||vkInitializing||typeof window.initVKBridge!=='function')return;
+      if(vk||vkInitializing)return;
+      const bridge=window.vkBridge;
+      if(!bridge || typeof bridge.send!=='function'||!launchedInsideVK(bridge))return;
       vkInitializing=true;
       try{
-        const initialized=await window.initVKBridge();
-        if(!initialized)return;
-        vk=window.vkBridge;
-        // Native views can hide without window blur on some mobile clients.
+        // Initialize VK Bridge directly in this module.
+        await bridge.send('VKWebAppInit');
+        vk=bridge;
+        // Some VK clients dispatch native lifecycle events without window blur.
         try{
-          vk.subscribe(event=>{
+          bridge.subscribe(event=>{
             const type=event?.detail?.type;
             if(type==='VKWebAppViewHide')pauseForVK();
-            if(type==='VKWebAppViewRestore')resumeForVK();
+            if(type==='VKWebAppViewRestore'){
+              resumeForVK();
+              if(!cloudReady)initializeCloudSave();
+              else if(cloudDirty){cloudSavingAllowed=true;scheduleCloudSave();}
+            }
           });
         }catch{}
+        await initializeCloudSave();
         await syncBanner();
       }catch{
-        vk=null;
+        vk=null;cloudReady=false;cloudSavingAllowed=false;
       }finally{
         vkInitializing=false;
       }
@@ -653,7 +882,13 @@
     const score=document.createElement('small');score.textContent=state.score.toLocaleString('ru-RU')+' ✦';
     own.append(rank,label,score);root.appendChild(own);
     const note=document.createElement('p');
-    note.textContent='Результат хранится в этом браузере. Общий рейтинг ВКонтакте пока не подключён.';
+    const cloudActive=Boolean(vk && cloudReady);
+    note.textContent=cloudActive
+      ? 'Прогресс сохраняется в облаке ВКонтакте и на этом устройстве. Общий рейтинг пока не подключён.'
+      : 'Прогресс сохранён на устройстве. Внутри ВКонтакте доступна облачная синхронизация.';
+    $('cloudSaveCaption').textContent=cloudActive
+      ? 'Достижения синхронизируются через облако ВКонтакте'
+      : 'Локальный прогресс · облачная синхронизация внутри ВКонтакте';
     root.appendChild(note);
   }
 

@@ -100,7 +100,7 @@
         </section>
 
         <section class="screen" id="screen-leaderboard" aria-label="Таблица лидеров">
-          <div class="panel-header"><span class="eyebrow">ЛУЧШИЕ ИСКАТЕЛИ СЛОВ</span><h2>Зал славы</h2><p>Твои достижения сохраняются на этом устройстве</p></div>
+          <div class="panel-header"><span class="eyebrow">ЛУЧШИЕ ИСКАТЕЛИ СЛОВ</span><h2>Зал славы</h2><p id="cloudSaveCaption">Прогресс сохраняется локально и синхронизируется с облаком ВКонтакте</p></div>
           <div class="glass-panel leaderboard-panel"><div class="leaderboard-you">Твои очки: <b id="myScore">0</b></div><div id="leaderboardRows" class="leaderboard-rows">Загружаем результаты…</div></div>
           <button class="secondary-btn" data-screen="map" type="button">Карта приключений</button>
         </section>
@@ -140,23 +140,5 @@
       <div id="bannerSpace" aria-hidden="true"></div>
     </div>
   </div>
-  <script>
-    // VK Bridge works inside a VK Mini App. A normal GitHub Pages tab stays offline.
-    window.initVKBridge = async function () {
-      const bridge = window.vkBridge;
-      if (!bridge || typeof bridge.send !== 'function') return false;
-      let inVK = false;
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const referringVK = /^https:\/\/(?:[a-z0-9-]+\.)?(?:vk\.com|vk\.ru|vkontakte\.ru)(?:\/|$)/i.test(document.referrer);
-        inVK = params.has('vk_app_id') || referringVK || Boolean(bridge.isWebView?.());
-      } catch { return false; }
-      if (!inVK) return false;
-      try {
-        await vkBridge.send('VKWebAppInit');
-        return true;
-      } catch { return false; }
-    };
-  </script>
 </body>
 </html>
