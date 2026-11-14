@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#193c4b">
+  <meta name="description" content="Слова из букв: Мир Кроссвордов — сказочное путешествие по 150 кроссвордам в 15 живописных мирах.">
+  <title>Слова из букв: Мир Кроссвордов</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="levels.js"></script>
+  <script defer src="game.js"></script>
+</head>
+<body>
+  <div id="app" class="chapter-1">
+    <canvas id="scenery" aria-hidden="true"></canvas>
+    <canvas id="particles" aria-hidden="true"></canvas>
+    <div class="scene-tint" aria-hidden="true"></div>
+    <div class="top-vignette" aria-hidden="true"></div>
+    <div class="app-shell">
+      <div class="topbar">
+        <button class="round-btn icon-back hidden" id="backBtn" type="button" aria-label="Назад">‹</button>
+        <div class="topbar-brand" id="brandTiny"><span class="brand-symbol">✦</span> LOOTLOGIC · МИР КРОССВОРДОВ</div>
+        <div class="topbar-actions">
+          <button class="wallet" type="button" data-screen="shop" aria-label="Магазин монет"><span class="coin-symbol">✦</span><b id="coinsCount">0</b><span class="wallet-add">+</span></button>
+          <button class="round-btn sound-btn" id="musicBtn" type="button" aria-label="Включить или отключить фоновую музыку" title="Музыка">🎵</button>
+          <button class="round-btn sound-btn" id="soundBtn" type="button" aria-label="Включить или отключить звуковые эффекты" title="Звуковые эффекты">🔊</button>
+        </div>
+      </div>
+
+      <main id="main">
+        <section class="screen active" id="screen-menu" aria-label="Главное меню">
+          <div class="menu-ornament" aria-hidden="true">✧ · ✦ · ✧</div>
+          <span class="studio-credit">LOOTLOGIC STUDIO</span>
+          <div class="hero-title">
+            <span class="hero-kicker">ВОЛШЕБНОЕ ПРИКЛЮЧЕНИЕ</span>
+            <h1>Слова<br><span>из букв</span></h1>
+            <p class="hero-subtitle">МИР КРОССВОРДОВ</p>
+            <div class="hero-divider"><span>✽</span></div>
+            <p class="hero-copy">В каждом слове таится магия</p>
+          </div>
+          <div class="menu-mascot" aria-hidden="true"><span class="mascot-spark s1">✦</span><span class="mascot-book">📖</span><span class="mascot-spark s2">✧</span></div>
+          <div class="menu-cta">
+            <button class="big-btn btn-play" id="playBtn" type="button"><span>▶</span><span>ИГРАТЬ</span><small>✦</small></button>
+            <button class="secondary-btn" data-screen="map" type="button">🗺️ &nbsp; Карта приключений</button>
+            <div class="menu-shortcuts">
+              <button type="button" data-screen="wheel"><span>🎡</span> Колесо удачи</button>
+              <button type="button" data-screen="leaderboard"><span>🏆</span> Рейтинг</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen-map" aria-label="Карта миров">
+          <div class="panel-header"><span class="eyebrow">ПУТЕШЕСТВИЕ ПО МИРАМ</span><h2>Карта приключений</h2><p>150 кроссвордов • 15 сказочных миров</p></div>
+          <div class="map-scroll" id="mapScroll">
+            <div id="mapChapters"></div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen-game" aria-label="Игровой экран">
+          <div class="game-head">
+            <div class="level-meta"><span class="eyebrow" id="chapterLabel">ГЛАВА I · ВОЛШЕБНЫЙ ЛЕС</span><h2 id="levelTitle">Тайна короны</h2></div>
+            <div class="level-chip" id="levelBadge">1<span>/150</span></div>
+          </div>
+          <div id="gameFeedback" class="game-feedback" aria-live="polite"></div>
+          <div class="progress-zone"><div class="progress-track"><div id="levelProgress"></div></div><span id="progressText">0/5 слов</span></div>
+          <div class="board-region"><div class="board-shimmer" aria-hidden="true"></div><div id="crossword" class="crossword" role="grid" aria-label="Кроссворд"></div></div>
+          <div class="play-bottom">
+            <div class="word-preview" id="wordPreview"><span class="preview-star">✦</span><span id="previewText">ПРОВЕДИ ПО БУКВАМ</span><span class="preview-star">✦</span></div>
+            <div class="wheel-area">
+              <div class="boosters left-boosters">
+                <button class="booster" id="shuffleBtn" type="button" title="Перемешать"><span class="boost-icon">⤨</span><small>Микс</small></button>
+                <button class="booster" id="targetBtn" type="button" title="Прицел на клетку"><span class="boost-icon">⌖</span><small>Прицел</small><span class="cost-label">✦ 75</span></button>
+              </div>
+              <div class="wheel-frame" id="wheelFrame">
+                <div class="wheel-ring"></div>
+                <div id="lettersWheel" class="letters-wheel" role="group" aria-label="Соедини буквы"></div>
+                <canvas id="swipeCanvas" class="swipe-canvas" aria-hidden="true"></canvas>
+                <button id="wheelCenter" class="wheel-center" type="button" aria-label="Перемешать буквы">✥</button>
+              </div>
+              <div class="boosters right-boosters">
+                <button class="booster" id="hintBtn" type="button" title="Подсказка-молния"><span class="boost-icon">ϟ</span><small>Молния</small><span class="cost-label">✦ 50</span></button>
+                <button class="booster chest-booster" id="bonusBtn" type="button" title="Сундук бонусных слов"><span class="chest-progress" id="chestProgress"></span><span class="boost-icon">🎁</span><small>Сундук</small></button>
+              </div>
+            </div>
+            <p class="gesture-hint">Соединяй буквы в слова <span>✧</span> Открой все клетки</p>
+          </div>
+        </section>
+
+        <section class="screen" id="screen-shop" aria-label="Магазин">
+          <div class="panel-header"><span class="eyebrow">ЗАПАСЫ МАГИИ</span><h2>Лавка чудес</h2><p>Больше подсказок — больше открытий</p></div>
+          <div class="shop-balance glass-panel"><span>ТВОЙ БАЛАНС</span><strong><span class="coin-symbol">✦</span> <span id="shopCoins">0</span></strong></div>
+          <div class="shop-grid">
+            <button type="button" class="shop-card" id="shopAdCoins"><span class="shop-emoji">🎬</span><b>Подарок феи</b><small>+100 монет за рекламу</small><span class="shop-action green">СМОТРЕТЬ</span></button>
+            <button type="button" class="shop-card" data-product="coins_500"><span class="shop-emoji">🪙</span><b>Мешочек монет</b><small>+500 монет</small><span class="shop-action" data-price="coins_500">ЗА ЯНЫ</span></button>
+            <button type="button" class="shop-card" data-product="coins_1500"><span class="shop-emoji">💰</span><b>Сундук монет</b><small>+1500 монет</small><span class="shop-action" data-price="coins_1500">ЗА ЯНЫ</span></button>
+            <button type="button" class="shop-card" data-product="disable_ads"><span class="shop-emoji">👑</span><b>Королевский пропуск</b><small>Без полноэкранной и стики-рекламы</small><span class="shop-action" data-price="disable_ads">ЗА ЯНЫ</span></button>
+          </div>
+          <p class="shop-info">Покупки за Яны доступны на площадке Яндекс Игр после настройки товаров в кабинете разработчика. Бонусные видео — добровольные.</p>
+        </section>
+
+        <section class="screen" id="screen-leaderboard" aria-label="Таблица лидеров">
+          <div class="panel-header"><span class="eyebrow">ЛУЧШИЕ ИСКАТЕЛИ СЛОВ</span><h2>Зал славы</h2><p>Соревнуйся с другими знатоками</p></div>
+          <div class="glass-panel leaderboard-panel"><div class="leaderboard-you">Твои очки: <b id="myScore">0</b></div><div id="leaderboardRows" class="leaderboard-rows">Загружаем результаты…</div></div>
+          <button class="secondary-btn" data-screen="map" type="button">Карта приключений</button>
+        </section>
+
+        <section class="screen" id="screen-wheel" aria-label="Ежедневное колесо удачи">
+          <div class="panel-header"><span class="eyebrow">ПОДАРОК КАЖДЫЙ ДЕНЬ</span><h2>Колесо удачи</h2><p>Испытай судьбу и получи монеты</p></div>
+          <div class="lucky-container"><div class="lucky-pointer">▼</div><div id="luckyWheel" class="lucky-wheel" aria-label="Колесо удачи: 25, 50, 100, 150, 250 или 500 монет">
+            <span class="lucky-prize" data-prize="25" style="--px:75%;--py:20%;">25</span>
+            <span class="lucky-prize" data-prize="50" style="--px:86%;--py:50%;">50</span>
+            <span class="lucky-prize" data-prize="100" style="--px:75%;--py:80%;">100</span>
+            <span class="lucky-prize" data-prize="150" style="--px:25%;--py:80%;">150</span>
+            <span class="lucky-prize" data-prize="250" style="--px:14%;--py:50%;">250</span>
+            <span class="lucky-prize" data-prize="500" style="--px:25%;--py:20%;">500</span>
+            <div class="lucky-inner">✦</div></div></div>
+          <div class="wheel-reward" id="dailyStatus">Твой бесплатный поворот уже ждёт!</div>
+          <button class="big-btn btn-play" id="spinBtn" type="button">КРУТИТЬ КОЛЕСО <span>✦</span></button>
+          <div class="reward-info">Один бесплатный поворот каждые сутки</div>
+        </section>
+
+        <section class="screen" id="screen-chest" aria-label="Сундук бонусных слов">
+          <div class="panel-header"><span class="eyebrow">СЕКРЕТНЫЕ СОКРОВИЩА</span><h2>Сундук слов</h2><p>Находи слова, которых нет в сетке</p></div>
+          <div class="chest-center"><div class="big-chest" id="bigChest">🎁</div><div class="chest-big-progress"><div id="chestBigFill"></div></div><p id="chestCounter">0 / 5</p></div>
+          <div class="glass-panel chest-explain">Каждые <b>5 бонусных слов</b> открывают сундук и приносят <b>75 монет</b>. Ищи скрытые сочетания букв во время прохождения уровней!</div>
+          <button class="secondary-btn" id="chestBack" type="button">Вернуться к игре</button>
+        </section>
+
+        <section class="screen" id="screen-win" aria-label="Победа">
+          <div class="win-rays" aria-hidden="true"></div>
+          <div class="win-content"><div class="victory-stars">✦ ✧ ✦</div><span class="win-crown">🏆</span><span class="eyebrow">УРОВЕНЬ ПРОЙДЕН</span><h2>Чудесно!</h2><p>Все слова найдены!</p>
+          <div class="win-reward"><span class="coin-symbol">✦</span><b id="victoryCoins">+80</b><small>монет за победу</small></div>
+          <button class="secondary-btn reward-double" id="doubleBtn" type="button">🎬 Забрать x2 · +80 монет</button>
+          <button class="big-btn btn-play" id="nextBtn" type="button">СЛЕДУЮЩИЙ УРОВЕНЬ <span>➜</span></button>
+          <button class="secondary-btn" type="button" data-screen="map">Карта приключений</button></div>
+        </section>
+      </main>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="bannerSpace" aria-hidden="true"></div>
+    </div>
+  </div>
+  <script src="https://unpkg.com"></script>
+<script src="vk-adapter.js"></script>
+<script>window.YandexBridge?.init();</script>
+</body>
+</html>
+
