@@ -19,17 +19,10 @@
     }
   };
 
-  const startObserver = () => {
+  window.addEventListener('DOMContentLoaded', () => {
     replaceYandexStrings();
-    const obs = new MutationObserver(replaceYandexStrings);
-    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startObserver);
-  } else {
-    startObserver();
-  }
+    document.addEventListener('click', () => setTimeout(replaceYandexStrings, 30));
+  });
 
   if (!window.vkBridge) return;
 
