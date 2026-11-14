@@ -1,5 +1,24 @@
 (() => {
   'use strict';
+
+  const fixTextsForVK = () => {
+    document.querySelectorAll('.buy-btn').forEach(btn => {
+      if (btn.textContent.includes('ЯНЫ')) btn.textContent = 'СКОРО';
+    });
+    const note = document.getElementById('shopNote');
+    if (note) note.textContent = 'Внутриигровые покупки за голоса ВК скоро откроются ✦';
+    const lb = document.getElementById('leaderboardRows');
+    if (lb && lb.textContent.includes('Яндекс')) {
+      lb.textContent = 'Твой личный рекорд сохраняется в игре ✦ Проходи уровни и ставь новые рекорды!';
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fixTextsForVK);
+  } else {
+    fixTextsForVK();
+  }
+
   if (!window.vkBridge) return;
 
   window.vkBridge.send('VKWebAppInit').catch(() => {});
