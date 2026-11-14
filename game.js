@@ -1,7 +1,7 @@
 /*
  * Слова из букв: Мир Кроссвордов — standalone HTML5 engine
- * Yandex Games product IDs: coins_500, coins_1500, disable_ads
- * Yandex Games leaderboard technical name: crosswordscore
+ * VK Mini Apps edition, compatible with static GitHub Pages hosting.
+ * Purchases, remote cloud saves and network leaderboards are disabled until connected to a backend.
  * No third-party assets / third-party game engine required.
  */
 (() => {
@@ -25,13 +25,12 @@
     {name:'Лунная бухта',tag:'ГЛАВА XIV · ЛУННАЯ БУХТА',icon:'🌙',sub:'Море серебряных отражений'},
     {name:'Небесный сад',tag:'ГЛАВА XV · НЕБЕСНЫЙ САД',icon:'☁️',sub:'Цветы среди облаков'}
   ];
-  const PRODUCT_GRANTS = {coins_500:500, coins_1500:1500};
   const DEFAULT = () => ({
     version:4, coins:250, levelUnlocked:1, lastLevel:1, completed:[],
     found:{}, revealed:{}, bonusFound:{}, chestProgress:0, chestOpened:0,
     dailyDate:'', spinAngle:0, noAds:false, muted:false, musicMuted:false, score:0,
     doubledRewards:[],
-    purchaseTokens:[], updatedAt:0
+    updatedAt:0
   });
   const validWord = s => /^[А-ЯЁ]+$/u.test(s);
   const normalizeSave = data => {
@@ -46,7 +45,7 @@
       if (!result[k] || Array.isArray(result[k]) || typeof result[k] !== 'object') result[k] = {};
       for (const [key, value] of Object.entries(result[k])) if (!Array.isArray(value)) delete result[k][key];
     }
-    for (const k of ['completed','purchaseTokens','doubledRewards']) if (!Array.isArray(result[k])) result[k] = [];
+    for (const k of ['completed','doubledRewards']) if (!Array.isArray(result[k])) result[k] = [];
     return result;
   };
   function readLocal(){
@@ -56,16 +55,15 @@
   let state = readLocal();
   let screen = 'menu', history = [], current = LEVELS[0];
   let targetMode = false, lockedWin = false, busySpin = false;
-  let pendingWinReward = 0, pendingWinFirst = false, paymentBusy = false;
-  let sdk = null, player = null, payments = null, sdkInitializing = false;
-  let adOpen = false, cloudTimer = 0, cloudWriting = Promise.resolve();
-  let sdkGamePaused = false, gameReadyReported = false;
+  let pendingWinReward = 0, pendingWinFirst = false;
+  let vk = null, vkInitializing = false;
+  let adOpen = false;
+  let vkViewPaused = false;
   let toastTimer = 0, winnerTimer = 0, sceneW = 0, sceneH = 0;
   const selection = {active:false, pointerId:null, indexes:[], point:null};
   const confetti = [], coins = [], sparks = [];
   const audio = {context:null,unlocked:false,ambientTimer:null,step:0,blocked:false,chapter:1,previousChapter:0,fadeSteps:0};
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const host = {known:false, available:false};
 
   function updateWallet(){
     $('coinsCount').textContent = state.coins.toLocaleString('ru-RU');
@@ -83,19 +81,12 @@
       button.title=(id==='targetBtn'?'Прицел:':'Молния:')+(free?' открыть за видео':' '+cost+' монет');
     }
   }
-  function persist({cloud=true}={}){
+  // Offline-first progress is stored only in this browser. No remote sync is claimed.
+  function persist(){
     state.updatedAt = Date.now();
-    try{localStorage.setItem(STORE,JSON.stringify(state));}catch(e){console.warn('Save unavailable',e);}
+    try { localStorage.setItem(STORE, JSON.stringify(state)); }
+    catch { /* Private browsing or blocked storage: gameplay stays playable. */ }
     updateWallet();
-    if (cloud && player){clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>saveCloud(),950);}
-  }
-  function saveCloud(){
-    if (!player) return Promise.resolve(false);
-    clearTimeout(cloudTimer);
-    const snapshot=JSON.parse(JSON.stringify(state));
-    cloudWriting = cloudWriting.catch(()=>{}).then(()=>player.setData({crosswordSave:snapshot},true))
-      .then(()=>true).catch(e=>{console.warn('Cloud save failed',e);return false;});
-    return cloudWriting;
   }
   function toast(message){
     const el=screen==='game' ? $('gameFeedback') : $('toast');
@@ -116,14 +107,8 @@
   function bonusWordsFound(){return state.bonusFound[current.id] ||= [];}
   function isWordCompleted(word){return foundWords().includes(word.word)||slots(word).every(k=>openCells().includes(k));}
   function wordCount(){return current.words.filter(isWordCompleted).length;}
-  function gameplay(playing){
-    if (!sdk?.features?.GameplayAPI) return;
-    try{
-      if(playing && !adOpen && !sdkGamePaused && !document.hidden && document.hasFocus())sdk.features.GameplayAPI.start();
-      else sdk.features.GameplayAPI.stop();
-    }catch{}
-
-  }
+  // VK Bridge has no GameplayAPI equivalent. Audio pauses on page and ad events.
+  function gameplay(_playing){}
   function showScreen(name,{record=true}={}){
     if (!$('screen-'+name)) return;
     if (screen===name) return;
@@ -530,194 +515,118 @@
   }
   function updateShop(){updateWallet();}
 
-  /* Yandex Games platform bridge. All calls guarded; local mode remains playable. */
-  function pauseForSDK(){
-    sdkGamePaused=true;
+  /* VK Mini Apps: all SDK calls fail safely in a regular browser or GitHub Pages. */
+  function pauseForVK(){
+    vkViewPaused=true;
+    finishSwipe(false);
     suspendAllAudio();
-    gameplay(false);
   }
-  function resumeForSDK(){
-    sdkGamePaused=false;
+  function resumeForVK(){
+    vkViewPaused=false;
     resumeAllAudio();
-    gameplay(screen==='game');
   }
-  function adBegin(){adOpen=true;suspendAllAudio();gameplay(false);}
-  function adFinish(){adOpen=false;resumeAllAudio();gameplay(screen==='game');}
-  async function syncBanner(){
-    $('app').classList.toggle('ads-free',Boolean(state.noAds));
-    if(!sdk?.adv)return;
-    try{
-      if(state.noAds)await sdk.adv.hideBannerAdv?.();
-      else await sdk.adv.showBannerAdv?.();
-    }catch{
-      // Sticky ads depend on platform settings / inventory.
-    }
-  }
-  /* Yandex Games platform bridge. All calls guarded; offline play is independent. */
-  const YandexBridge = {
-    async init(){
-      if(sdk||sdkInitializing||typeof window.YaGames==='undefined')return;
-      sdkInitializing=true;
-      try{
-        sdk=await window.YaGames.init();
-        const lang = sdk.environment?.i18n?.lang || 'ru'; document.documentElement.lang = lang;
-        host.known=true;host.available=true;
-        // boot() already constructed all interactive UI and painted the initial scene.
-        // Allow one browser render turn before notifying Game Ready.
-        await Promise.race([
-          new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))),
-          new Promise(resolve=>setTimeout(resolve,300))
-        ]);
-        if(!gameReadyReported){
-          try{sdk.features?.LoadingAPI?.ready();gameReadyReported=true;}catch{}
-        }
-        try{
-          sdk.on?.('game_api_pause',pauseForSDK);
-          sdk.on?.('game_api_resume',resumeForSDK);
-        }catch{}
-        // Restore disable_ads before asking the platform to display its sticky banner.
-        try{
-          player=await sdk.getPlayer();
-          const remote=await player.getData(['crosswordSave']);
-          const stored=remote?.crosswordSave;
-          if(stored&&Number(stored.updatedAt)>state.updatedAt){
-            state=normalizeSave(stored);persist({cloud:false});
-            if(screen==='game')startLevel(Math.min(state.lastLevel,state.levelUnlocked));
-            else {updateWallet();if(screen==='map')renderMap();}
-          }else await saveCloud();
-        }catch{player=null;}
-        try{
-          payments=await sdk.getPayments();
-          await refreshPurchases();
-          try{
-            const catalog=await payments.getCatalog();
-            if(Array.isArray(catalog))for(const item of catalog){
-              // Display the SDK currency and actual localized price, never hard-code Yans.
-              if(!['coins_500','coins_1500','disable_ads'].includes(item?.id))continue;
-              const el=document.querySelector(`[data-price="${item.id}"]`);
-              if(el && item.price)el.textContent=String(item.price);
-            }
-          }catch{ /* Catalog is unavailable until products are configured. */ }
-        }catch{payments=null;}
-        await syncBanner();
-        gameplay(screen==='game');
-        if(state.score)setScore();
-      }catch{
-        sdk=null;host.known=true;host.available=false;
-      }finally{sdkInitializing=false;}
-    },
-    offline(){host.known=true;host.available=false;}
-  };
-  window.YandexBridge=YandexBridge;
-  async function refreshPurchases(){
-    if(!payments)return;
-    try{
-      const purchases=await payments.getPurchases();
-      if(!Array.isArray(purchases))return;
-      for(const purchase of purchases){
-        if(purchase.productID==='disable_ads'){
-          if(!state.noAds){state.noAds=true;persist({cloud:false});await syncBanner();}
-        }else if(PRODUCT_GRANTS[purchase.productID]) await processPurchase(purchase);
-      }
-    }catch(e){console.warn('Could not restore purchases',e);}
-  }
-  async function processPurchase(purchase){
-    // SDK client-side processing uses productID + purchaseToken.
-    // The same token must never yield coins twice, including after crashes.
-    if(!payments||!purchase?.purchaseToken)return false;
-    const token=String(purchase.purchaseToken),grant=PRODUCT_GRANTS[purchase.productID];
-    if(!grant)return false;
-    let firstGrant=false;
-    if(!state.purchaseTokens.includes(token)){
-      state.coins+=grant;
-      state.purchaseTokens.push(token);
-      // Purchased currency and the token marker are persisted atomically.
-      persist({cloud:false});
-      firstGrant=true;
-    }
-    // Yandex recommends saving credited goods BEFORE consuming the receipt.
-    // If the connection fails, leave the purchase pending for getPurchases()
-    // to retry on the next game launch instead of losing the purchased coins.
-    if(!player){
-      toast('Монеты начислены локально. Восстановим покупку при подключении');
-      return firstGrant;
-    }
-    const safelyStored=await saveCloud();
-    if(!safelyStored){
-      toast('Монеты сохранены. Синхронизация покупки повторится позже');
-      return firstGrant;
-    }
-    try{
-      await payments.consumePurchase(token);
-    }catch(e){
-      // Idempotent replay: the token is already in the saved purchase ledger.
-      console.info('Purchase consumption will be retried',e);
-    }
-    return firstGrant;
-  }
-  async function purchase(id){
-    if(!payments){toast('Покупки доступны на Яндекс Играх после настройки товаров');return;}
-    if(paymentBusy)return;
+  function adBegin(){adOpen=true;suspendAllAudio();}
+  function adFinish(){adOpen=false;resumeAllAudio();}
 
-    if(id==='disable_ads'&&state.noAds){toast('Реклама уже отключена навсегда');return;}
-    paymentBusy=true;
-    suspendAllAudio();gameplay(false);
+  async function syncBanner(){
+    // Reserve ad space only after VK confirms that a banner is visible.
+    $('app').classList.add('ads-free');
+    if(!vk)return;
+    if(state.noAds){
+      try{await vk.send('VKWebAppHideBannerAd');}catch{}
+      return;
+    }
     try{
-      const receipt=await payments.purchase({id});
-      if(receipt?.productID!==id){throw new Error('Ответ платежного сервиса не совпадает с товаром');}
-      if(id==='disable_ads'){
-        state.noAds=true;persist();await saveCloud();
-        await syncBanner();
-        toast('Королевский пропуск активирован! 👑');
-      }else{
-        const credited=await processPurchase(receipt);
-        toast(credited?'Монеты начислены! ✦':'Эта покупка уже обработана ✦');
+      const available=await vk.send('VKWebAppCheckBannerAd');
+      if(available?.result!==true)return;
+      let response;
+      try{
+        response=await vk.send('VKWebAppShowBannerAd', {banner_location:'bottom',layout_type:'resize'});
+      }catch{
+        response=await vk.send('VKWebAppShowBannerAd', {banner_location:'bottom'});
       }
-      sound('win');
-    }catch(e){console.info('Purchase cancelled or unavailable',e);toast('Покупка не завершена');}
-    finally{paymentBusy=false;resumeAllAudio();gameplay(screen==='game');}
+      if(response?.result===true)$('app').classList.remove('ads-free');
+    }catch{
+      // The host, placement, advertising inventory or ad-blocker may reject it.
+    }
   }
+
+  const VKBridgeAdapter = {
+    async init(){
+      if(vk||vkInitializing||typeof window.initVKBridge!=='function')return;
+      vkInitializing=true;
+      try{
+        const initialized=await window.initVKBridge();
+        if(!initialized)return;
+        vk=window.vkBridge;
+        // Native views can hide without window blur on some mobile clients.
+        try{
+          vk.subscribe(event=>{
+            const type=event?.detail?.type;
+            if(type==='VKWebAppViewHide')pauseForVK();
+            if(type==='VKWebAppViewRestore')resumeForVK();
+          });
+        }catch{}
+        await syncBanner();
+      }catch{
+        vk=null;
+      }finally{
+        vkInitializing=false;
+      }
+    }
+  };
+
+  // No payment backend is configured: never grant paid items from a client-only site.
+  function purchase(_id){
+    toast('Покупки пока не доступны во ВКонтакте. Скоро!');
+  }
+
   async function rewarded(onRewarded){
-    if(!sdk?.adv?.showRewardedVideo){
-      toast('Видео с наградой доступно после публикации в Яндекс Играх');
+    if(!vk){
+      toast('Видео с наградой доступно только во ВКонтакте');
       return false;
     }
     if(adOpen)return false;
     adBegin();
-    let granted=false,closed=false;
-    const finish=()=>{if(closed)return;closed=true;adFinish();};
     try{
-      sdk.adv.showRewardedVideo({callbacks:{
-        onOpen:adBegin,
-        onRewarded:()=>{
-          if(granted)return;
-          granted=true;
-          try{onRewarded();}catch{toast('Не удалось применить награду');}
-        },
-        onClose:()=>{finish();if(!granted)toast('Награда за видео не получена');},
-        onError:()=>{finish();toast('Видео сейчас недоступно. Повтори позже');}
-      }});
+      const available=await vk.send('VKWebAppCheckNativeAds',{ad_format:'reward'});
+      if(available?.result!==true){
+        toast('Пока нет доступного видео. Попробуй позже');
+        return false;
+      }
+      const result=await vk.send('VKWebAppShowNativeAds',{ad_format:'reward'});
+      // A completed, successful VK ad is the sole condition for the reward.
+      if(result?.result!==true){
+        toast('Награда за видео не получена');
+        return false;
+      }
+      try{onRewarded();}
+      catch{toast('Не удалось начислить награду');return false;}
       return true;
     }catch{
-      finish();toast('Не удалось открыть видеорекламу');return false;
+      toast('Реклама сейчас недоступна во ВКонтакте');
+      return false;
+    }finally{
+      adFinish();
     }
   }
-  function showInterstitial(continuation=()=>{}){
-    if(state.noAds||!sdk?.adv?.showFullscreenAdv||adOpen){continuation();return;}
+
+  async function showInterstitial(continuation=()=>{}){
+    if(state.noAds||!vk||adOpen){continuation();return;}
     adBegin();
-    let finished=false;
-    const finish=()=>{
-      if(finished)return;
-      finished=true;adFinish();continuation();
-    };
     try{
-      sdk.adv.showFullscreenAdv({callbacks:{
-        onOpen:adBegin,
-        onClose:finish,
-        onError:finish
-      }});
-    }catch{finish();}
+      const available=await vk.send('VKWebAppCheckNativeAds',{ad_format:'interstitial'});
+      if(available?.result===true){
+        await vk.send('VKWebAppShowNativeAds',{ad_format:'interstitial'});
+      }
+    }catch{
+      // Unavailable fullscreen ads must never block the next level.
+    }finally{
+      adFinish();
+      continuation();
+    }
   }
+
   function doubleVictoryReward(){
     const id=current.id,extra=pendingWinReward;
     if(screen!=='win'||!pendingWinFirst||state.doubledRewards.includes(id)||adOpen)return;
@@ -732,38 +641,20 @@
       toast('Награда удвоена! +'+extra+' монет');
     });
   }
-  async function setScore(){
-    if(!sdk?.leaderboards||!state.score)return;
-    try{
-      const allowed=await sdk.isAvailableMethod?.('leaderboards.setScore');
-      if(allowed===false)return;
-      await sdk.leaderboards.setScore('crosswordscore',state.score);
-    }catch(e){console.info('Leaderboard not configured / unauthorized',e);}
-  }
-  async function refreshLeaderboard(){
+
+  // VK network leaderboards require a separately configured API/backend.
+  function setScore(){ /* Score has already been persisted locally. */ }
+  function refreshLeaderboard(){
     updateWallet();
     const root=$('leaderboardRows');root.replaceChildren();
-    if(!sdk?.leaderboards){
-      root.textContent='Локальный режим: у тебя '+state.score.toLocaleString('ru-RU')+' очков. Сетевой рейтинг появится после публикации в Яндекс Играх.';
-      return;
-    }
-    root.textContent='Загружаем лучших игроков…';
-    try{
-      const data=await sdk.leaderboards.getEntries('crosswordscore',{quantityTop:10,includeUser:true,quantityAround:2});
-      root.replaceChildren();
-      const unique=[...new Map((data.entries||[]).map(r=>[r.player?.uniqueID||r.rank,r])).values()];
-      if(!unique.length){root.textContent='Рейтинг пока пуст. Стань первым!';return;}
-      for(const row of unique){
-        const el=document.createElement('div');el.className='leaderboard-row';
-        const rank=document.createElement('span');rank.className='rank-num';rank.textContent=row.rank<=3?['🥇','🥈','🥉'][row.rank-1]:'#'+row.rank;
-        const name=document.createElement('span');name.textContent=row.player?.publicName||'Искатель слов';
-        const score=document.createElement('small');score.textContent=Number(row.score||0).toLocaleString('ru-RU')+' ✦';
-        el.append(rank,name,score);root.appendChild(el);
-      }
-    }catch(e){
-      console.warn('Leaderboard unavailable',e);
-      root.textContent='Для сетевого рейтинга настрой техническое имя crosswordscore в кабинете Яндекс Игр. Твои очки уже сохраняются.';
-    }
+    const own=document.createElement('div');own.className='leaderboard-row';
+    const rank=document.createElement('span');rank.textContent='🏅';
+    const label=document.createElement('span');label.textContent='Мой рекорд';
+    const score=document.createElement('small');score.textContent=state.score.toLocaleString('ru-RU')+' ✦';
+    own.append(rank,label,score);root.appendChild(own);
+    const note=document.createElement('p');
+    note.textContent='Результат хранится в этом браузере. Общий рейтинг ВКонтакте пока не подключён.';
+    root.appendChild(note);
   }
 
   /* Original synthesized audio using Web Audio API. No audio downloads. */
@@ -793,7 +684,7 @@
     try{if(audio.context?.state==='running')audio.context.suspend().catch(()=>{});}catch{}
   }
   function resumeAllAudio(){
-    if(!audio.unlocked||document.hidden||!document.hasFocus()||adOpen||sdkGamePaused)return;
+    if(!audio.unlocked||document.hidden||!document.hasFocus()||adOpen||vkViewPaused)return;
     audio.blocked=false;
     try{if(audio.context?.state==='suspended')audio.context.resume().catch(()=>{});}catch{}
     startAmbient();
@@ -1488,14 +1379,13 @@
     }
     bindUI();
     updateWallet();
-    $('app').classList.toggle('ads-free',Boolean(state.noAds));
+    $('app').classList.add('ads-free');
     current=LEVELS[state.lastLevel-1]||LEVELS[0];
     buildLetters();
     $('app').dataset.chapter='1';
     drawScenery();ensureParticlesSize();renderDaily();renderMap();
     requestAnimationFrame(animationFrame);
-    if(window.YaGames)YandexBridge.init();
-    else if(location.protocol==='file:')YandexBridge.offline();
+    VKBridgeAdapter.init();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
   else boot();

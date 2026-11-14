@@ -7,6 +7,7 @@
   <meta name="description" content="Слова из букв: Мир Кроссвордов — сказочное путешествие по 150 кроссвордам в 15 живописных мирах.">
   <title>Слова из букв: Мир Кроссвордов</title>
   <link rel="stylesheet" href="style.css">
+  <script defer src="https://unpkg.com/@vkontakte/vk-bridge@2.15.0/dist/browser.min.js"></script>
   <script defer src="levels.js"></script>
   <script defer src="game.js"></script>
 </head>
@@ -91,15 +92,15 @@
           <div class="shop-balance glass-panel"><span>ТВОЙ БАЛАНС</span><strong><span class="coin-symbol">✦</span> <span id="shopCoins">0</span></strong></div>
           <div class="shop-grid">
             <button type="button" class="shop-card" id="shopAdCoins"><span class="shop-emoji">🎬</span><b>Подарок феи</b><small>+100 монет за рекламу</small><span class="shop-action green">СМОТРЕТЬ</span></button>
-            <button type="button" class="shop-card" data-product="coins_500"><span class="shop-emoji">🪙</span><b>Мешочек монет</b><small>+500 монет</small><span class="shop-action" data-price="coins_500">ЗА ЯНЫ</span></button>
-            <button type="button" class="shop-card" data-product="coins_1500"><span class="shop-emoji">💰</span><b>Сундук монет</b><small>+1500 монет</small><span class="shop-action" data-price="coins_1500">ЗА ЯНЫ</span></button>
-            <button type="button" class="shop-card" data-product="disable_ads"><span class="shop-emoji">👑</span><b>Королевский пропуск</b><small>Без полноэкранной и стики-рекламы</small><span class="shop-action" data-price="disable_ads">ЗА ЯНЫ</span></button>
+            <button type="button" class="shop-card" data-product="coins_500"><span class="shop-emoji">🪙</span><b>Мешочек монет</b><small>+500 монет</small><span class="shop-action" data-price="coins_500">СКОРО</span></button>
+            <button type="button" class="shop-card" data-product="coins_1500"><span class="shop-emoji">💰</span><b>Сундук монет</b><small>+1500 монет</small><span class="shop-action" data-price="coins_1500">СКОРО</span></button>
+            <button type="button" class="shop-card" data-product="disable_ads"><span class="shop-emoji">👑</span><b>Королевский пропуск</b><small>Без полноэкранной и стики-рекламы</small><span class="shop-action" data-price="disable_ads">СКОРО</span></button>
           </div>
-          <p class="shop-info">Покупки за Яны доступны на площадке Яндекс Игр после настройки товаров в кабинете разработчика. Бонусные видео — добровольные.</p>
+          <p class="shop-info">Внутриигровые покупки пока не подключены во ВКонтакте. Монеты можно получать за прохождение уровней и добровольный просмотр доступной рекламы.</p>
         </section>
 
         <section class="screen" id="screen-leaderboard" aria-label="Таблица лидеров">
-          <div class="panel-header"><span class="eyebrow">ЛУЧШИЕ ИСКАТЕЛИ СЛОВ</span><h2>Зал славы</h2><p>Соревнуйся с другими знатоками</p></div>
+          <div class="panel-header"><span class="eyebrow">ЛУЧШИЕ ИСКАТЕЛИ СЛОВ</span><h2>Зал славы</h2><p>Твои достижения сохраняются на этом устройстве</p></div>
           <div class="glass-panel leaderboard-panel"><div class="leaderboard-you">Твои очки: <b id="myScore">0</b></div><div id="leaderboardRows" class="leaderboard-rows">Загружаем результаты…</div></div>
           <button class="secondary-btn" data-screen="map" type="button">Карта приключений</button>
         </section>
@@ -139,8 +140,23 @@
       <div id="bannerSpace" aria-hidden="true"></div>
     </div>
   </div>
- <script src="vk-adapter.js"></script>
-<script>window.YandexBridge?.init();</script>
+  <script>
+    // VK Bridge works inside a VK Mini App. A normal GitHub Pages tab stays offline.
+    window.initVKBridge = async function () {
+      const bridge = window.vkBridge;
+      if (!bridge || typeof bridge.send !== 'function') return false;
+      let inVK = false;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const referringVK = /^https:\/\/(?:[a-z0-9-]+\.)?(?:vk\.com|vk\.ru|vkontakte\.ru)(?:\/|$)/i.test(document.referrer);
+        inVK = params.has('vk_app_id') || referringVK || Boolean(bridge.isWebView?.());
+      } catch { return false; }
+      if (!inVK) return false;
+      try {
+        await vkBridge.send('VKWebAppInit');
+        return true;
+      } catch { return false; }
+    };
+  </script>
 </body>
 </html>
-
