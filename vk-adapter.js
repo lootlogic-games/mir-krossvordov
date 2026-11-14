@@ -1,35 +1,22 @@
 (() => {
   'use strict';
 
+  const cleanText = str => str
+    .replace(/на площадке Яндекс Игр/g, 'во ВКонтакте')
+    .replace(/на Яндекс Играх/g, 'во ВКонтакте')
+    .replace(/в Яндекс Играх/g, 'во ВКонтакте')
+    .replace(/Яндекс Игр/g, 'ВКонтакте')
+    .replace(/за Яны/gi, 'за голоса')
+    .replace(/ЗА ЯНЫ/g, 'СКОРО');
+
   const replaceYandexStrings = () => {
-    document.querySelectorAll('.buy-btn').forEach(btn => {
-      if (btn.textContent.includes('ЯНЫ')) btn.textContent = 'СКОРО';
-    });
-    const note = document.getElementById('shopNote');
-    if (note && note.textContent.includes('Яндекс')) {
-      note.textContent = 'Внутриигровые покупки за голоса ВК скоро откроются ✦';
-    }
-    const lb = document.getElementById('leaderboardRows');
-    if (lb && lb.textContent.includes('Яндекс')) {
-      lb.textContent = 'Твой личный рекорд сохраняется в игре ✦ Проходи уровни и ставь новые рекорды!';
-    }
-    for (const id of ['toast', 'gameFeedback']) {
-      const el = document.getElementById(id);
-      if (el && el.textContent.includes('Яндекс')) {
-        el.textContent = el.textContent
-          .replace('на площадке Яндекс Игр', 'во ВКонтакте')
-          .replace('в Яндекс Играх', 'во ВКонтакте')
-          .replace('Яндекс Игр', 'ВКонтакте');
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue && /Яндекс|Яны|ЯНЫ/i.test(node.nodeValue)) {
+        node.nodeValue = cleanText(node.nodeValue);
       }
     }
-    document.querySelectorAll('p, div, span, button').forEach(el => {
-      if (el.children.length === 0 && el.textContent.includes('Яндекс')) {
-        el.textContent = el.textContent
-          .replace('на площадке Яндекс Игр', 'во ВКонтакте')
-          .replace('в Яндекс Играх', 'во ВКонтакте')
-          .replace('Яндекс Игр', 'ВКонтакте');
-      }
-    });
   };
 
   const startObserver = () => {
